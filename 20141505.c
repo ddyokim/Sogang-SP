@@ -35,8 +35,6 @@ void no_file() {
 void pass_blank(char *str, int *i) {
     for(;str[*i] == ' ' || str[*i] == '\t';++(*i));
 }
-
-
 /* scan 1 line to str, extract command */
 void scan(char *str, char *cmd) {
     char tmp;
@@ -142,6 +140,17 @@ int check_cmd(char* str,char* cmd) {
         if((c=check_blank(str, i)) == CORRECT_CMD) {
             print_symbol();
         }
+    }
+    //progaddr
+    else if(!strcmp(cmd,"progaddr")) {
+        if((c = set_progaddr(str,cmd)) == INVALID_RANGE)
+            invalid_range();
+    }
+    //loader
+    else if(!strcmp(cmd,"loader")) {
+        c = loader(str,cmd);
+        if (c == INVALID_RANGE) // file does not exist
+            no_file();
     }
     if(strlen(str) == 0) return 1;
     if(c == CORRECT_CMD) mkhis(str); //if correct command, make history
@@ -281,7 +290,7 @@ void mv_hex(char *str, int *i, char *arr, int *idx) {
 
 /* print dump */ 
 void dump() {
-    int i, j;
+    int i, j, x;
     int sl, el;
     if(d_start == DUMP_SIZE)
         d_start = 0;
@@ -297,13 +306,14 @@ void dump() {
 
     for(i=sl;i<el;) {
         printf("%05X ",i);  //dump start line addr
+        x = i;
         for(j=0;j<16;++i,++j) {
             if(i>=d_start && i<= d_end)
                 printf("%02X ",d[i]); //print hex
             else printf("   ");
         }
         printf("; ");
-        for(j=0;j<16;++j) {
+        for(i=x, j=0;j<16;++i, ++j) {
             if(d[i] >= 32 && d[i] <=126) // print data
                 printf("%c",d[i]);
             else printf(".");
@@ -474,12 +484,14 @@ void free_all() {
         h_tmp=h_tmp->next;
         free(h_del);
     }
+    front=NULL;
     for(i=0;i<TABLE_SIZE;++i) {
         for(o_tmp=table[i];o_tmp;) {
             o_del=o_tmp;
             o_tmp=o_tmp->next;
             free(o_del);
         }
+        table[i]=NULL;
     }
 }
 /* hash function */
@@ -1132,7 +1144,7 @@ void assemble() {
     int start_addr=0, locctr, i;
     int error_flag = 0, program_len;
     SYMBOL *sym_tmp, *erase;
-    
+
     do {
         fileread(fp,cmd,label,opcode,operand);
     } while(cmd[0] == '.');
@@ -1201,7 +1213,7 @@ void print_symbol() {
     for(i=0;i<TABLE_SIZE;++i) {
         sym_tmp = symtab[i];
         while(sym_tmp != NULL) {
-            strcpy(t[idx].label,sym_tmp->label);
+            strncpy(t[idx].label,sym_tmp->label,STR_MAX+1);
             t[idx].locctr = sym_tmp->locctr;
             sym_tmp = sym_tmp->next;
             idx++;
@@ -1221,4 +1233,269 @@ void print_symbol() {
     for(i=0;i<idx;++i) {
         printf("\t%s\t%4X\n",t[i].label, t[i].locctr);
     }
+}
+/* check asyntax error and set program starting address */
+int set_progaddr(char *str, char *cmd) { 
+    int i=0, end; //command end
+    int slen = strlen(str);
+
+    pass_blank(str,&i);
+    i+= strlen(cmd);
+    pass_blank(str, &i);
+    end = i;
+    if(end == slen)
+        return INVALID_CMD;
+    for(;str[i];++i) {
+        if(check_hex(&str[i]) == 0)  // not hex
+            return INVALID_CMD;
+    }
+    if(check_range(str+end, 1) == -1) // not between address range
+        return INVALID_RANGE;
+    sscanf(str+end,"%X",&prog_addr);
+    return CORRECT_CMD;
+}
+/* clear external symbol table */
+void clear_estab() {
+    int i;
+    EXSYM *tmp, *del;
+    for(i=0;i<TABLE_SIZE;++i) {
+        for(tmp=estab[i];tmp;) {
+            del=tmp;
+            tmp=tmp->next;
+            free(del);
+        }
+        estab[i]=NULL;
+    }
+}
+/* check invalid parameter and do loader */
+int loader(char *str, char *cmd) {
+    char filename[STR_MAX+1];
+    int start=0, temp = 0;
+    int total_length = 0;
+    int fail = 0, compare_addr, found;
+    int i;
+    int csaddr = prog_addr;
+    EXSYM *head, *min = NULL;
+
+    clear_estab(); // clear external symbol table
+    pass_blank(str,&start);
+    start+=strlen(cmd);
+    pass_blank(str,&start);
+    temp = start;
+    //if filename object file is not exist 
+    while (sscanf(str + start, "%s", filename) != EOF) {
+        start += strlen(filename);
+        pass_blank(str, &start);
+        if (fopen(filename, "r") == NULL) {
+            return INVALID_RANGE;
+        }
+    }
+    // make external symbol table (call pass1)
+    start = temp;
+    while (sscanf(str + start, "%s", filename) != EOF) {
+        if (filename[0] == 0) 
+            break;
+        start += strlen(filename);
+        pass_blank(str, &start);
+        fail +=  !loader_pass1(filename, &total_length, &csaddr);
+        memset(filename, 0, sizeof filename);
+    }
+    // Performs the actual loading, relocation, and linking (call pass2)
+    start = temp;
+    if (fail == 0) {
+        csaddr = prog_addr;
+        exec_addr = prog_addr;
+        while (sscanf(str + start, "%s", filename) != EOF) {
+            start += strlen(filename);
+            pass_blank(str, &start);
+            fail += !loader_pass2(filename, &csaddr);
+        }
+    }
+    else return EXECPTION; //duplication symbol
+    // if no error, print external symbol table
+    if (fail == 0) {
+        printf("control\t\tsymbol\t    address\tlength\nsection\t\tname\n");
+        printf("----------------------------------------------------\n");
+        found = 1;
+        compare_addr = prog_addr-1;
+        while(found) {
+            found = 0;
+            for (i=0;i<TABLE_SIZE;++i) {
+                for (head = estab[i]; head; head = head->next) {
+                    if (head->address > compare_addr) {
+                        if (min == NULL) {
+                            min = head;
+                            found = 1;
+                        } else if (min->address > head->address) {
+                            min = head;
+                            found = 1;
+                        }
+                    }
+                }
+            }
+            if (found) {
+                compare_addr = min->address;
+                if (min->length != 0)
+                    printf("%-6s\t\t\t    %04X\t%04X\n", min->label, min->address, min->length);
+                else
+                    printf("\t\t%-6s\t    %04X\n", min->label, min->address);
+                min = NULL;
+            }
+        }
+        printf("----------------------------------------------------\n");
+        printf("\t\t\t    total length %04X\n", total_length);
+        return CORRECT_CMD;
+    }
+    else {
+        printf("*** undefined symbol ***\n");
+        return EXECPTION;
+    }
+}
+/* pass 1 linking */
+int loader_pass1(char* filename, int* total_length, int* csaddr) {
+    FILE* fp = NULL;
+    char control_sec[7], symbol[7]; // control section is less than or equal to 6
+    char str[STR_MAX+1];
+    int cslth, error_flag = 0, addr;
+    int start = 1;
+    EXSYM *tmp, *newnode;
+
+    // read header record
+    fp = fopen(filename, "r");
+    fscanf(fp,"H%6s%*6X%6X", control_sec, &cslth);
+    tmp = estab[hash(control_sec)];
+    while(tmp) {
+        if(!strcmp(tmp->label, control_sec)) {  // duplicate external symbol
+            error_flag = 1;
+            printf("*** duplicate external symbol ***\n");
+            break;
+        }
+        tmp = tmp->next;
+    }
+    if (!error_flag) {  // store control section name
+        newnode = mkexsym(*csaddr, cslth, control_sec);
+        for(tmp = estab[hash(control_sec)];tmp && tmp->next;tmp=tmp->next);
+        if (tmp)
+            tmp->next = newnode;
+        else
+            estab[hash(control_sec)] = newnode;
+    }
+    else return !error_flag;
+
+    while(fgets(str, STR_MAX, fp)) {
+        start = 1;
+        if(str[0] == 'D') { // if D record
+            while(sscanf(str+start,"%6s%6X",symbol, &addr) != EOF) {
+                start += 12;    //next command start +12 char(6 symbol, 6 address)
+                tmp = estab[hash(symbol)];
+                while(tmp) {
+                    if(!strcmp(tmp->label, symbol)) {  // duplicate external symbol
+                        error_flag = 1;
+                        printf("*** duplicate external symbol ***\n");
+                        break;
+                    }
+                    tmp = tmp->next;
+                } // Assigns addresses to all external symbols
+                if(!error_flag) {
+                    newnode = mkexsym((*csaddr)+addr,0,symbol);
+                    for(tmp = estab[hash(symbol)];tmp && tmp->next;tmp=tmp->next);
+                    if (tmp)
+                        tmp->next = newnode;
+                    else
+                        estab[hash(symbol)] = newnode;
+                }
+            }
+        }
+    }
+    *csaddr += cslth;
+    *total_length += cslth;
+    fclose(fp);
+    return !error_flag;
+}
+/* pass2 loading loading, relocation, and linking */
+int loader_pass2(char *filename, int *csaddr) {
+    FILE* fp = NULL;
+    char control_sec[7]={0,}, symbol[7]={0,}, // control section is less than or equal to 6
+         reference[100][7]={{0}}; // convert reference number -> external symbol
+    char str[STR_MAX+1];
+    char reference_type;
+    int cslth, addr;
+    int start = 1, reference_number;
+    int found, error_flag = 0; // error_flag 1: undefined external symbol
+    int modifying_addr, original_addr, modifying_length;
+    int i, j, t, size;
+    EXSYM *tmp;
+
+    fp = fopen(filename, "r");
+    fscanf(fp,"H%6s%*6X%6X", control_sec, &cslth);
+    strncpy(reference[1], control_sec, sizeof(control_sec));
+    while(fgets(str, STR_MAX, fp)) {
+        start = 1;  //1 = T, 6 = address, 2 = length
+        if (str[0] == 'T') {
+            sscanf(str+start, "%6X", &addr);
+            start+=6;
+            sscanf(str+start,"%2X", &size);
+            start+=2;
+            for(i=addr+(*csaddr), j=0; j<size*2; ++i, j+=2) {
+                sscanf(str+start+j,"%02X",&t);
+                d[i] = t;
+            }
+        }
+        else if (str[0] == 'E') {
+            sscanf(str+1, "%6X", &addr);
+            if (addr != 0) {
+                exec_addr = (*csaddr) + addr;
+            }
+        }
+        else if(str[0] == 'R') {
+            while (sscanf(str+start, "%2X%6s", &reference_number, symbol) != EOF) {
+                strncpy(reference[reference_number], symbol, sizeof(symbol));
+                start += 2+6; // 2:reference number, 6:external symbol length
+            }
+        }
+        else if(str[0] == 'M') {
+            sscanf(str+1,"%6X%2X%c%02X",&addr, &modifying_length, &reference_type, &reference_number);
+            found = 0;
+            for (tmp = estab[hash(reference[reference_number])];tmp;tmp=tmp->next) {
+                if (!strcmp(tmp->label, reference[reference_number])) {
+                    found = 1;
+                    modifying_addr = tmp->address;
+                    break;
+                }
+            }
+            if(reference[reference_number] == 0 || found == 0) // external symbol not exist
+                error_flag = 1;
+            else { // symbol exist
+                original_addr = 0;
+                if (modifying_length % 2 == 1) { //odd number (save half byte)
+                    original_addr += d[(*csaddr)+addr] % 16;
+                }
+                for (i = 0; i < modifying_length / 2; ++i) { // save one byte
+                    original_addr *= 256;
+                    original_addr += d[(*csaddr)+addr+i+(modifying_length % 2 == 1)];
+                }
+                if (reference_type == '+') { //modify
+                    original_addr += modifying_addr;
+                } else {
+                    original_addr -= modifying_addr;
+                }
+                
+                original_addr &= (1<<(4*modifying_length))-1; // 2's complement(4*m bits)
+                /* store */
+                for (i=modifying_length/2-1; i>=0; i--) {
+                    d[(*csaddr)+addr+i+(modifying_length %2 == 1)] = original_addr % 256;
+                    original_addr /= 256;
+                }
+                if (modifying_length % 2 == 1) {
+                    d[(*csaddr)+addr] >>= 4;
+                    d[(*csaddr)+addr] <<= 4;
+                    d[(*csaddr)+addr] += original_addr;
+                }
+            }
+        }
+        memset(str,0,sizeof(str));
+    }
+    *csaddr += cslth;
+    fclose(fp);
+    return 1;
 }

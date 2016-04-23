@@ -9,13 +9,14 @@
 #define STR_MAX 1000
 #define DUMP_SIZE 1048576
 #define TABLE_SIZE 20
-#define CMD_CNT 13
+#define CMD_CNT 17
 #define ADDR_MAX 1048575
 #define HEX_MAX 255
 
 #define INVALID_CMD 0
 #define CORRECT_CMD 1
 #define INVALID_RANGE 2
+#define EXECPTION 3
 
 typedef struct _HIST{
     struct _HIST *next;
@@ -32,9 +33,24 @@ typedef struct _SYMBOL {
     char label[STR_MAX+1];
     int locctr;
 } SYMBOL;
+typedef struct _EXSYM {
+    struct _EXSYM *next;
+    char label[STR_MAX+1];
+    int address;
+    int length;
+} EXSYM;
 HIST *front=NULL, *rear=NULL;
 OPCODE *table[TABLE_SIZE];
 SYMBOL *symtab[TABLE_SIZE];
+EXSYM *estab[TABLE_SIZE];
+EXSYM* mkexsym(int address, int length, char *label) {
+    EXSYM* newnode = (EXSYM*)malloc(sizeof(EXSYM));
+    newnode->next = NULL;
+    newnode->address = address;
+    newnode->length = length;
+    strncpy(newnode->label,label,STR_MAX+1);
+    return newnode;
+}
 SYMBOL* mksym(int locctr, char *label) {
     SYMBOL* newnode = (SYMBOL*)malloc(sizeof(SYMBOL));
     newnode->next = NULL;
@@ -64,10 +80,12 @@ void mkhis(char *str) {
 }
 int d_start, d_end; //dump start/end address
 int addr, value; // address and value for edit command
-int f_start, f_end; //fill start/end address
+int f_start, f_end; //fill start/end addres
+int prog_addr; //program start address
+int exec_addr; //execute address
 char file[STR_MAX];
-unsigned char d[DUMP_SIZE];
-char *help_list[13] = {
+unsigned char d[DUMP_SIZE]; //dump
+char *help_list[CMD_CNT] = {
     "h[elp]",
     "d[ir]",
     "q[uit]",
@@ -80,7 +98,11 @@ char *help_list[13] = {
     "opcodelist",
     "assemble filename",
     "type filename",
-    "symbol"
+    "symbol",
+    "progaddr [address]",
+    "loader [object filename1] [object filename2] [...]",
+    "bp",
+    "run"
 };
 
 /* fuction definition */
@@ -121,4 +143,9 @@ void fileread(FILE*, char*, char*, char*, char*);
 int pass1(FILE*, FILE*, char*, char*, char*, char*, char*, int*, int*);
 int pass2(FILE*, FILE*, FILE*, char*, int);
 void print_symbol();
+int set_progaddr(char *,char *);
+int loader(char *, char*);
+int loader_pass1(char*, int*, int*);
+int loader_pass2(char*, int*);
+void clear_estab();
 #endif
