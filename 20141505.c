@@ -120,6 +120,23 @@ int check_cmd(char* str,char* cmd) {
     }
     //opcodelist
     else if(!strcmp(cmd,"opcodelist")) {
+        if((c=check_blank(str,i)) == CORRECT_CMD)
+            opcodelist();
+    }
+    //tpye
+    else if(!strcmp(cmd,"type")) {
+        if((c=check_type(str,cmd)) == INVALID_RANGE)
+            no_file();
+    }
+    //assemble
+    else if(!strcmp(cmd,"assemble")) {
+        if((c=check_assemble(str,cmd)) == CORRECT_CMD) 
+            assemble();
+        else if(c == INVALID_RANGE)  // if there is no file
+            no_file();
+    }
+    //symbol
+    else if(!strcmp(cmd,"symbol")) {
         if((c=check_blank(str, i)) == CORRECT_CMD) {
             print_symbol();
         }
@@ -1553,10 +1570,10 @@ int check_bp(char *str, char *cmd) {
             newnode->next = bp_prev->next;
             bp_prev->next = newnode;
         }
-   }
+    }
     return CORRECT_CMD;
 }
 /* execute program */
 void run() {
-    
+
 }
