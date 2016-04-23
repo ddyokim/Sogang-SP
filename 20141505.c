@@ -120,37 +120,29 @@ int check_cmd(char* str,char* cmd) {
     }
     //opcodelist
     else if(!strcmp(cmd,"opcodelist")) {
-        if((c=check_blank(str,i)) == CORRECT_CMD)
-            opcodelist();
-    }
-    //tpye
-    else if(!strcmp(cmd,"type")) {
-        if((c=check_type(str,cmd)) == INVALID_RANGE)
-            no_file();
-    }
-    //assemble
-    else if(!strcmp(cmd,"assemble")) {
-        if((c=check_assemble(str,cmd)) == CORRECT_CMD) 
-            assemble();
-        else if(c == INVALID_RANGE)  // if there is no file
-            no_file();
-    }
-    //symbol
-    else if(!strcmp(cmd,"symbol")) {
         if((c=check_blank(str, i)) == CORRECT_CMD) {
             print_symbol();
         }
     }
     //progaddr
     else if(!strcmp(cmd,"progaddr")) {
-        if((c = set_progaddr(str,cmd)) == INVALID_RANGE)
+        if((c=set_progaddr(str,cmd)) == INVALID_RANGE)
             invalid_range();
     }
     //loader
     else if(!strcmp(cmd,"loader")) {
-        c = loader(str,cmd);
-        if (c == INVALID_RANGE) // file does not exist
+        if((c=loader(str,cmd)) == INVALID_RANGE) // file does not exist
             no_file();
+    }
+    //bp
+    else if(!strcmp(cmd,"bp")) {
+        if((c=check_bp(str,cmd)) == INVALID_RANGE)
+            invalid_range();
+    }
+    //run
+    else if(!strcmp(cmd,"run")) {
+        if((c=check_blank(str, i)) == CORRECT_CMD) 
+            run();
     }
     if(strlen(str) == 0) return 1;
     if(c == CORRECT_CMD) mkhis(str); //if correct command, make history
@@ -1479,10 +1471,10 @@ int loader_pass2(char *filename, int *csaddr) {
                 } else {
                     original_addr -= modifying_addr;
                 }
-                
+
                 original_addr &= (1<<(4*modifying_length))-1; // 2's complement(4*m bits)
-                /* store */
-                for (i=modifying_length/2-1; i>=0; i--) {
+                /* store byte reverse direction */
+                for (i=modifying_length/2-1; i>=0; --i) {
                     d[(*csaddr)+addr+i+(modifying_length %2 == 1)] = original_addr % 256;
                     original_addr /= 256;
                 }
@@ -1497,5 +1489,74 @@ int loader_pass2(char *filename, int *csaddr) {
     }
     *csaddr += cslth;
     fclose(fp);
-    return 1;
+    return CORRECT_CMD;
+}
+/* execute breakpoint command */
+int check_bp(char *str, char *cmd) {
+    int i=0, j=0, slen = strlen(str);
+    int addr;
+    char tmp[STR_MAX+1]={0,};
+    BP *bp_tmp, *bp_del, *bp_prev, *newnode;
+    pass_blank(str,&i);
+    i+=strlen(cmd);
+    pass_blank(str,&i);
+
+    if(slen == i) { // command is "bp"
+        // print bp list
+        printf("breakpoint\n");
+        printf("----------\n");
+        for(bp_tmp=bp_head;bp_tmp;bp_tmp=bp_tmp->next)
+            printf("%04X\n",bp_tmp->address);
+        return CORRECT_CMD;
+    }
+
+    sscanf(str+i,"%s",tmp);
+    i+=strlen(tmp);
+    pass_blank(str,&i);
+    if(i < slen)
+        return INVALID_CMD;
+
+    if(!strcmp(tmp,"clear")) {
+        //clear bp list
+        printf("\t[ok] clear all breakpoints\n");
+        for(bp_tmp=bp_head;bp_tmp;bp_tmp=bp_tmp->next) {
+            bp_del = bp_tmp;
+            free(bp_del);
+        }
+        bp_head = NULL;
+        return CORRECT_CMD;
+    }
+    for(j=0;tmp[j];++j) {
+        if(check_hex(&tmp[j]) == 0) // not hex
+            return INVALID_CMD;
+    }
+    if((addr=check_range(tmp,1)) == -1) //invalid range
+        return INVALID_RANGE;
+    for(bp_tmp=bp_head;bp_tmp;bp_tmp=bp_tmp->next) {
+        if(bp_tmp->address == addr) {
+            printf("*** duplicate breakpoint ***\n");
+            return EXECPTION;
+        }
+    }
+    printf("\t[ok] create breakpoint %04X\n",addr);
+    // make break point
+    newnode = mkbp(addr);
+    if(bp_head == NULL) {
+        bp_head = newnode;
+    } else {
+        bp_tmp = bp_head;
+        for(bp_tmp=bp_prev=bp_head; bp_tmp && bp_tmp->address < addr; bp_prev=bp_tmp, bp_tmp=bp_tmp->next);
+        if(bp_tmp == bp_head) {
+            newnode->next = bp_head;
+            bp_head = newnode;
+        } else {
+            newnode->next = bp_prev->next;
+            bp_prev->next = newnode;
+        }
+   }
+    return CORRECT_CMD;
+}
+/* execute program */
+void run() {
+    
 }

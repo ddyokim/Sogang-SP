@@ -39,10 +39,21 @@ typedef struct _EXSYM {
     int address;
     int length;
 } EXSYM;
+typedef struct _BP {
+    struct _BP *next;
+    int address;
+} BP;
+BP *bp_head=NULL, *bp_now=NULL;
 HIST *front=NULL, *rear=NULL;
 OPCODE *table[TABLE_SIZE];
 SYMBOL *symtab[TABLE_SIZE];
 EXSYM *estab[TABLE_SIZE];
+BP* mkbp(int address) {
+    BP* newnode = (BP*)malloc(sizeof(BP));
+    newnode->next = NULL;
+    newnode->address = address;
+    return newnode;
+}
 EXSYM* mkexsym(int address, int length, char *label) {
     EXSYM* newnode = (EXSYM*)malloc(sizeof(EXSYM));
     newnode->next = NULL;
@@ -101,7 +112,7 @@ char *help_list[CMD_CNT] = {
     "symbol",
     "progaddr [address]",
     "loader [object filename1] [object filename2] [...]",
-    "bp",
+    "bp [clear]|[address]",
     "run"
 };
 
@@ -148,4 +159,6 @@ int loader(char *, char*);
 int loader_pass1(char*, int*, int*);
 int loader_pass2(char*, int*);
 void clear_estab();
+int check_bp(char*, char*);
+void run();
 #endif
