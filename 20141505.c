@@ -168,15 +168,12 @@ int check_cmd(char* str,char* cmd) {
         invalid_cmd();
     return 1;
 }
-
-
 /* print help list */
 void help() {
     int i;
     for(i=0;i<CMD_CNT;++i)
         printf("%s\n",help_list[i]);
 }
-
 /* print dir */
 void dir() {
     //if(strlen(cmd) == 0) return 1;
@@ -199,7 +196,6 @@ void dir() {
     printf("\n");
     closedir(dirp);
 }
-
 /* print history */
 //if(strlen(cmd) == 0) return 1;
 void history() {
@@ -208,7 +204,6 @@ void history() {
     for(;tmp;tmp=tmp->next, ++i) 
         printf("%5d %s\n",i, tmp->cmd);
 }
-
 /* check hex */
 int check_hex(char *a) {
     if(*a>='a' && *a<='f') //from a to f
@@ -289,14 +284,12 @@ int check_dump(char *str, char *cmd) {
     d_end = end;
     return 1;
 }
-
 /* copy hex part to arr */
 void mv_hex(char *str, int *i, char *arr, int *idx) {
     for(*idx = 0;check_hex(&str[*i]);++(*i)) {
         arr[(*idx)++] = str[*i];
     }
 }
-
 /* print dump */ 
 void dump() {
     int i, j, x;
@@ -331,7 +324,6 @@ void dump() {
     }
     d_start = d_end+1;
 }
-
 /* check edit syntax error */
 int check_edit(char *str, char *cmd) {
     int slen = strlen(str);
@@ -366,12 +358,10 @@ int check_edit(char *str, char *cmd) {
     value = vv;
     return 1;
 }
-
 /* edit value */
 void edit() {
     d[addr] = value;
 }
-
 /* check fill syntax error */
 int check_fill(char *str, char *cmd) {
     int slen = strlen(str);
@@ -426,7 +416,6 @@ void fill() {
 void reset() {
     memset(d,0,sizeof(d));
 }
-
 /* check opcode syntax error */
 int check_opcode(char *str, char *cmd) {
     int slen = strlen(str);
@@ -816,6 +805,7 @@ int pass1(FILE *fp, FILE *inter, char *cmd, char *label, char *opcode, char *ope
     fprintf(inter,"10 %04X %s\n",*locctr,cmd);
     return ret;
 }
+/* pass2 process */
 int pass2(FILE *inter, FILE *obj, FILE *lst, char *base, int program_len) {
     FILE *tfp = fopen("temporary.txt","w"); // temporary file
     FILE *mfp = fopen("temporary_modification.txt", "w"); // temporary for modification file
@@ -1575,5 +1565,6 @@ int check_bp(char *str, char *cmd) {
 }
 /* execute program */
 void run() {
-
+    int cur_addr = prog_addr;
+    while(cur_addr 
 }
