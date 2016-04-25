@@ -1310,7 +1310,7 @@ int loader(char *str, char *cmd) {
             fail += !loader_pass2(filename, &csaddr);
         }
     }
-    else return EXECPTION; //duplication symbol
+    else return EXCEPTION; //duplication symbol
     // if no error, print external symbol table
     if (fail == 0) {
         printf("control\t\tsymbol\t    address\tlength\nsection\t\tname\n");
@@ -1347,7 +1347,7 @@ int loader(char *str, char *cmd) {
     }
     else {
         printf("*** undefined symbol ***\n");
-        return EXECPTION;
+        return EXCEPTION;
     }
 }
 /* pass 1 linking */
@@ -1419,9 +1419,10 @@ int loader_pass2(char *filename, int *csaddr) {
     char str[STR_MAX+1];
     char reference_type;
     int cslth, addr;
-    int start = 1, reference_number;
-    int found, error_flag = 0; // error_flag 1: undefined external symbol
+    int start = 1;
+    int found; 
     int modifying_addr, original_addr, modifying_length;
+    int reference_number;
     int i, j, t, size;
     EXSYM *tmp;
 
@@ -1431,9 +1432,9 @@ int loader_pass2(char *filename, int *csaddr) {
     while(fgets(str, STR_MAX, fp)) {
         start = 1;  //1 = T, 6 = address, 2 = length
         if (str[0] == 'T') {
-            sscanf(str+start, "%6X", &addr);
+            sscanf(str+start, "%06X", &addr);
             start+=6;
-            sscanf(str+start,"%2X", &size);
+            sscanf(str+start,"%02X", &size);
             start+=2;
             for(i=addr+(*csaddr), j=0; j<size*2; ++i, j+=2) {
                 sscanf(str+start+j,"%02X",&t);
@@ -1463,7 +1464,7 @@ int loader_pass2(char *filename, int *csaddr) {
                 }
             }
             if(reference[reference_number] == 0 || found == 0) // external symbol not exist
-                error_flag = 1;
+                return INVALID_CMD;
             else { // symbol exist
                 original_addr = 0;
                 if (modifying_length % 2 == 1) { //odd number (save half byte)
@@ -1530,7 +1531,7 @@ int check_bp(char *str, char *cmd) {
             bp_del = bp_tmp;
             free(bp_del);
         }
-        bp_head = NULL;
+        bp_head = bp_now = NULL;
         return CORRECT_CMD;
     }
     for(j=0;tmp[j];++j) {
@@ -1542,7 +1543,7 @@ int check_bp(char *str, char *cmd) {
     for(bp_tmp=bp_head;bp_tmp;bp_tmp=bp_tmp->next) {
         if(bp_tmp->address == addr) {
             printf("*** duplicate breakpoint ***\n");
-            return EXECPTION;
+            return EXCEPTION;
         }
     }
     printf("\t[ok] create breakpoint %04X\n",addr);
@@ -1550,7 +1551,8 @@ int check_bp(char *str, char *cmd) {
     newnode = mkbp(addr);
     if(bp_head == NULL) {
         bp_head = newnode;
-    } else {
+        bp_now = bp_head;
+    } else { // save bp in order 
         bp_tmp = bp_head;
         for(bp_tmp=bp_prev=bp_head; bp_tmp && bp_tmp->address < addr; bp_prev=bp_tmp, bp_tmp=bp_tmp->next);
         if(bp_tmp == bp_head) {
@@ -1563,8 +1565,305 @@ int check_bp(char *str, char *cmd) {
     }
     return CORRECT_CMD;
 }
+/* find opcode's mnemonic */
+OPCODE* find_opcode(int a) {
+    int i;
+    OPCODE *tmp;
+    for(i=0;i<TABLE_SIZE;++i) {
+        tmp = table[i];
+        while(tmp) {
+            if(tmp->opcode == a)
+                return tmp;
+            tmp=tmp->next;
+        }
+    }
+    return NULL;
+}
+/* find register */
+int* find_register(int a) {
+    if(a == 0) return &A;
+    else if(a == 1) return &X;
+    else if(a == 2) return &L;
+    else if(a == 3) return &B;
+    else if(a == 4) return &S;
+    else if(a == 5) return &T;
+    else if(a == 6) return &F;
+    else if(a == 8) return &PC;
+    else if(a == 9) return &SW;
+    else { return 0; }
+}
 /* execute program */
-void run() {
+int run() {
     int cur_addr = prog_addr;
-    while(cur_addr 
+    int reg1, reg2, operand=0, *reg1_addr, *reg2_addr;
+    int object_code = 0;
+    int ni; // 1: immediate 2: indirect 3: simple addressing
+    int xbpe=0, TA=0, tmp=0;
+    OPCODE *cmd;
+    cur_addr = PC;
+    while((bp_now == NULL || cur_addr != bp_now->address) && cur_addr < DUMP_SIZE) {
+        object_code = d[cur_addr];
+        cmd = find_opcode(object_code & 252);
+        if(object_code == 0) {
+            printf("***reference no data ***\n");
+            break;
+        }
+        if(cmd == 0) { //compare front 6 bit and not command
+            //resb or resw
+            PC += 1;
+            continue;
+        }
+        if(!strcmp(cmd->format,"1")) { // format 1
+            PC +=1;
+            cur_addr = PC;
+            continue;
+        }
+        else if(!strcmp(cmd->format,"2")) { //format 2
+            reg1 = d[++cur_addr];
+            reg2 = reg1%16;
+            reg1>>=4;
+            if(!strcmp(cmd->mnemonic,"CLEAR")) {
+                if((reg1_addr = find_register(reg1)))
+                    *reg1_addr = 0;
+                else { printf("ERROR : not valid register!\n"); return EXCEPTION; }
+            } else if(!strcmp(cmd->mnemonic,"TIXR")) {
+                X++;
+                if((reg1_addr = find_register(reg1)))
+                    SW =(X>*reg1_addr)? '>' :((X==*reg1_addr)? '=' : '<');
+                else { printf("ERROR : not valid register!\n"); return EXCEPTION; }
+            } else if(!strcmp(cmd->mnemonic,"COMPR")) {
+                if((reg1_addr = find_register(reg1)) && (reg2_addr = find_register(reg2)))
+                    SW =(*reg1_addr>*reg2_addr)? '>' :((*reg2_addr==*reg2_addr)? '=' : '<');
+                else  { printf("ERROR : not valid register!\n"); return EXCEPTION; }
+            }
+            PC += 2;
+            cur_addr = PC;
+            continue;
+        }
+
+        ni = object_code % 4;
+        object_code<<=8;
+        object_code += d[++cur_addr]; // read 1 byte
+        xbpe = (object_code & 240)>>4;
+        operand = object_code & ((1<<4)-1); // 0000 0011
+        operand <<= 8;
+        operand += d[++cur_addr]; // set operand (read more 1 byte) 
+        if((xbpe & 1) == 0) { //format 3
+            if(!strcmp(cmd->mnemonic,"TD")) {
+                SW = '<';
+            } else if(!strcmp(cmd->mnemonic,"RD")) {
+                A = 0;
+            } 
+            PC += 3;
+            TA = operand;
+            if(TA & 0x800) {
+                TA |= 0xFFFFF000;
+            }
+            if(xbpe & 2) //pc relative
+                TA += PC;
+            else if(xbpe & 4) //base relative
+                TA += B;
+            if(!strcmp(cmd->mnemonic,"LDA")) {
+                if(ni == 1) A = TA; //immediate
+                else {
+                    if(ni == 2) // indirect
+                        TA = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2];
+                    A = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2];
+                }
+            } else if(!strcmp(cmd->mnemonic,"LDB")) {
+                if(ni == 1) B = TA; //immediate
+                else {
+                    if(ni == 2) // indirect
+                        TA = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2];
+                    B = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2];
+                }
+            } else if(!strcmp(cmd->mnemonic,"LDCH")) {
+                if(ni == 1) A = TA & ((1<<8)-1); //immediate
+                else {
+                    A |= d[TA+2];
+                }
+                if(xbpe & 8) A+=X;
+            } else if(!strcmp(cmd->mnemonic,"LDT")) {
+                if(ni == 1) T = TA; //immediate
+                else {
+                    if(ni == 2) // indirect
+                        TA = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2];
+                    T = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2];
+                }
+            }
+
+            else if(!strcmp(cmd->mnemonic,"STA")) {
+                if(ni == 2) //indirect;
+                TA = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2];
+                tmp = A;
+                d[TA+2] = tmp&((1<<8)-1);
+                tmp>>=8;
+                d[TA+1] = tmp&((1<<8)-1);
+                tmp>>=8;
+                d[TA] = tmp;
+            } else if(!strcmp(cmd->mnemonic,"STCH")) {
+                tmp = A;
+                d[TA+2] = tmp&((1<<8)-1);
+                if(xbpe & 8) d[TA+2]+=T;
+            } else if(!strcmp(cmd->mnemonic,"STL")) {
+                if(ni == 2) //indirect;
+                TA = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2];
+                tmp = L;
+                d[TA+2] = tmp&((1<<8)-1);
+                tmp>>=8;
+                d[TA+1] = tmp&((1<<8)-1);
+                tmp>>=8;
+                d[TA] = tmp;
+            } else if(!strcmp(cmd->mnemonic,"STX")) {
+                if(ni == 2) //indirect;
+                TA = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2];
+                tmp = X;
+                d[TA+2] = tmp&((1<<8)-1);
+                tmp>>=8;
+                d[TA+1] = tmp&((1<<8)-1);
+                tmp>>=8;
+                d[TA] = tmp;
+            }
+
+            else if(!strcmp(cmd->mnemonic,"J")) {
+                if(ni == 2) TA = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2];
+                PC = TA;
+            } else if(!strcmp(cmd->mnemonic,"JEQ")) {
+                if(SW == '=') {
+                    if(ni == 2) TA = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2];
+                    PC = TA;
+                }
+            } else if(!strcmp(cmd->mnemonic,"JLT")) {
+                if(SW == '<') {
+                    if(ni == 2) PC = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2];
+                    PC = TA;
+                }
+            } else if(!strcmp(cmd->mnemonic,"JSUB")) {
+                L = PC;
+                if(ni == 2) PC = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2]; // indirect
+                PC =TA;
+            }
+
+            else if(!strcmp(cmd->mnemonic,"COMP")) {
+                if(ni == 1) //immediate
+                    SW = (A>TA)? '>' : ((A==TA)? '=' : '<');
+                else {
+                    if(ni == 2) TA = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2]; // indirect
+                    tmp = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2];
+                    SW = (A>tmp)? '>' : ((A==tmp)? '=' : '<');
+                }
+            }
+            else if(!strcmp(cmd->mnemonic,"RSUB")) {
+                PC = L;
+            }
+        }
+        else { // format 4
+            operand <<= 8;
+            operand += d[++cur_addr]; // set operand (read more 2 byte)
+            PC +=4;
+            TA = operand;
+            if(xbpe & 2) //pc relative
+                TA += PC;
+            else if(xbpe & 4) //base relative
+                TA += B;
+            
+            if(!strcmp(cmd->mnemonic,"LDA")) {
+                if(ni == 1) A = TA; //immediate
+                else {
+                    if(ni == 2) // indirect
+                        TA = (d[TA]<<24) + (d[TA+1]<<16) + (d[TA+2]<<8) + d[TA+3];
+                    A =(d[TA]<<24) + (d[TA+1]<<16) + (d[TA+2]<<8) + d[TA+3];
+                }
+            } else if(!strcmp(cmd->mnemonic,"LDB")) {
+                if(ni == 1) B = TA; //immediate
+                else {
+                    if(ni == 2) // indirect
+                        TA = (d[TA]<<24) + (d[TA+1]<<16) + (d[TA+2]<<8) + d[TA+3];
+                    B = (d[TA]<<24) + (d[TA+1]<<16) + (d[TA+2]<<8) + d[TA+3];
+                }
+            } else if(!strcmp(cmd->mnemonic,"LDCH")) {
+                if(ni == 1) A = TA & ((1<<8)-1); //immediate
+                else {
+                    A |= d[TA+2];
+                }
+            } else if(!strcmp(cmd->mnemonic,"LDT")) {
+                if(ni == 1) T = TA; //immediate
+                else {
+                    if(ni == 2) // indirect
+                        TA = (d[TA]<<24) + (d[TA+1]<<16) + (d[TA+2]<<8) + d[TA+3];
+                    T = (d[TA]<<24) + (d[TA+1]<<16) + (d[TA+2]<<8) + d[TA+3];
+                }
+            }
+
+            else if(!strcmp(cmd->mnemonic,"STA")) {
+                if(ni == 2) //indirect;
+                TA = (d[TA]<<24) + (d[TA+1]<<16) + (d[TA+2]<<8) + d[TA+3];
+                tmp = A;
+                d[TA+3] = tmp&((1<<8)-1);
+                tmp>>=8;
+                d[TA+2] = tmp&((1<<8)-1);
+                tmp>>=8;
+                d[TA+1] = tmp;
+            } else if(!strcmp(cmd->mnemonic,"STCH")) {
+                tmp = A;
+                d[TA+3] = tmp&((1<<8)-1);
+            } else if(!strcmp(cmd->mnemonic,"STL")) {
+                if(ni == 2) //indirect;
+                TA = (d[TA]<<24) + (d[TA+1]<<16) + (d[TA+2]<<8) + d[TA+3];
+                tmp = L;
+                d[TA+3] = tmp&((1<<8)-1);
+                tmp>>=8;
+                d[TA+2] = tmp&((1<<8)-1);
+                tmp>>=8;
+                d[TA+1] = tmp;
+            } else if(!strcmp(cmd->mnemonic,"STX")) {
+                if(ni == 2) //indirect;
+                TA = (d[TA]<<24) + (d[TA+1]<<16) + (d[TA+2]<<8) + d[TA+3];
+                tmp = X;
+                d[TA+3] = tmp&((1<<8)-1);
+                tmp>>=8;
+                d[TA+2] = tmp&((1<<8)-1);
+                tmp>>=8;
+                d[TA+1] = tmp;
+            }
+            else if(!strcmp(cmd->mnemonic,"J")) {
+                if(ni == 2) TA = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2]; //indirect
+                PC = TA;
+            } else if(!strcmp(cmd->mnemonic,"JEQ")) {
+                if(SW == '=') {
+                    if(ni == 2) TA = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2]; //indirect
+                    PC = TA;
+                }
+            } else if(!strcmp(cmd->mnemonic,"JLT")) {
+                if(SW == '<') {
+                    if(ni == 2) TA = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2]; // indirect
+                    PC = TA;
+                }
+            } else if(!strcmp(cmd->mnemonic,"JSUB")) {
+                L = PC;
+                if(ni == 2) TA = (d[TA]<<16) + (d[TA+1]<<8) + d[TA+2]; // indirect
+                PC = TA;
+            }
+
+            else if(!strcmp(cmd->mnemonic,"COMP")) {
+                if(ni == 1) //immediate
+                    SW = (A>TA)? '>' : ((A==TA)? '=' : '<');
+                else {
+                    if(ni == 2) TA = (d[TA]<<24) + (d[TA+1]<<16) + (d[TA+2]<<8) + d[TA+3]; // indirect
+                    tmp = (d[TA]<<24) + (d[TA+1]<<16) + (d[TA+2]<<8) + d[TA+3];
+                    SW = (A>tmp)? '>' : ((A==tmp)? '=' : '<');
+                }
+            }
+        }
+        cur_addr = PC;
+    }
+    printf("A : %06X X : %06X\n",A, X);
+    printf("L : %06X PC: %06X\n",L, PC);
+    printf("B : %06X S : %06X\n",B, S);
+    printf("T : %06X\n",T);
+    if(bp_now) {
+        printf("\tStop at checkpoint[%04X]\n",bp_now->address);
+        bp_now = bp_now->next;
+    }
+    return 1;
 }

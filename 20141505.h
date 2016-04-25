@@ -16,7 +16,7 @@
 #define INVALID_CMD 0
 #define CORRECT_CMD 1
 #define INVALID_RANGE 2
-#define EXECPTION 3
+#define EXCEPTION 3
 
 typedef struct _HIST{
     struct _HIST *next;
@@ -94,6 +94,8 @@ int addr, value; // address and value for edit command
 int f_start, f_end; //fill start/end addres
 int prog_addr; //program start address
 int exec_addr; //execute address
+int A, X, L=16777215, PC, B, S, T; // register
+int F, SW;
 char file[STR_MAX];
 unsigned char d[DUMP_SIZE]; //dump
 char *help_list[CMD_CNT] = {
@@ -160,5 +162,6 @@ int loader_pass1(char*, int*, int*);
 int loader_pass2(char*, int*);
 void clear_estab();
 int check_bp(char*, char*);
-void run();
+int run();
+OPCODE* find_opcode(int);
 #endif
