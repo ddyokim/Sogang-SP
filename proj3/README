@@ -1,0 +1,14 @@
+컴파일은 make 라고 명령어를 실행한다.
+실행파일 명은 ./20141505.out 이고,
+문법이 잘 기억나지 않는다면 help 혹은 h를 입력해보자.
+명령어의 문법을 틀리면 명령어가 수행되지 않는다.
+dump의 크기는 1MB이다.
+assemble이 가능한 파일의 확장자는 asm이다.
+assemble 방법은 assemble [filename] 이다.
+수행이 성공할 경우 .obj 파일과 .lst 파일을 생성한다.
+만약 수행 중 문제가 발생한다면 해당 줄과 에러에 대한 이유가 출력된다.
+object 파일 여러개를 linking과 loading 하고 싶다면 loader [filename1] [filename2] [...] 을 기술한다.
+정상적으로 loader가 실행되었다면 load map이 출력된다.
+program 시작주소를 수정하고 싶다면 progaddr 명령어를 이용하여 지정한다.
+주소의 범위는 00000~FFFFF이다.
+loader 명령어를 수행한 후 run을 입력하면 프로그램이 실행된다.
